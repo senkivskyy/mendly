@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mendly</title>
+<meta name="description" content="Point at what's broken and get the fix, step by step, plus the right replacement part at the best price.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23111'/%3E%3Cpath d='M9 23V9l7 9 7-9v14' fill='none' stroke='%23fff' stroke-width='3' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --ink: #111111;
+    --muted: #6b6b6b;
+    --line: #e4e4e1;
+    --soft: #f1f1ef;
+    --btn: #111111;
+    --btn-ink: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111111;
+      --surface: #1a1a1a;
+      --ink: #f4f4f2;
+      --muted: #9a9a96;
+      --line: #2b2b2a;
+      --soft: #222221;
+      --btn: #f4f4f2;
+      --btn-ink: #111111;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  }
+  main { max-width: 560px; margin: 0 auto; padding: 20px 16px 48px; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; }
+  .logo { width: 28px; height: 28px; border-radius: 8px; background: var(--btn); display: grid; place-items: center; }
+  .logo svg { width: 18px; height: 18px; }
+  header strong { font-size: 18px; letter-spacing: -0.01em; }
+  h1 { font-size: 28px; line-height: 1.15; letter-spacing: -0.02em; margin: 0 0 8px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 28px 0 10px; font-weight: 600; }
+  p.lead { color: var(--muted); margin: 0 0 24px; }
+
+  .drop {
+    display: grid; place-items: center; text-align: center; gap: 6px;
+    min-height: 220px; padding: 24px; border: 1.5px dashed var(--line); border-radius: 16px;
+    background: var(--surface); cursor: pointer; position: relative; overflow: hidden;
+  }
+  .drop:active { background: var(--soft); }
+  .drop .icon { width: 44px; height: 44px; }
+  .drop b { font-size: 17px; }
+  .drop span { color: var(--muted); font-size: 14px; }
+  .drop img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .drop.has-photo { border-style: solid; }
+  input[type=file] { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+  .swap { margin: 8px 2px 0; font-size: 14px; color: var(--muted); }
+
+  label.field { display: block; margin-top: 20px; font-weight: 600; font-size: 15px; }
+  label.field small { font-weight: 400; color: var(--muted); }
+  textarea, input[type=text] {
+    width: 100%; margin-top: 8px; padding: 14px; font: inherit; color: var(--ink);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px; outline: none;
+  }
+  textarea { min-height: 88px; resize: vertical; }
+  textarea:focus, input[type=text]:focus { border-color: var(--ink); }
+
+  button {
+    font: inherit; font-weight: 600; cursor: pointer; border-radius: 12px; border: 0;
+    padding: 16px 20px; width: 100%; background: var(--btn); color: var(--btn-ink); margin-top: 20px;
+  }
+  button:disabled { opacity: 0.35; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); margin-top: 10px; }
+  .meta { color: var(--muted); font-size: 13px; text-align: center; margin-top: 14px; }
+  .err { margin-top: 16px; padding: 12px 14px; border: 1px solid var(--ink); border-radius: 12px; font-size: 15px; }
+
+  .loading { text-align: center; padding: 72px 0; }
+  .spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--ink); margin: 0 auto 20px; animation: spin 0.9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading p { margin: 0; font-weight: 600; }
+  .loading small { color: var(--muted); }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
+  .title { font-size: 26px; line-height: 1.15; letter-spacing: -0.02em; margin: 0 0 6px; }
+  .sub { color: var(--muted); margin: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .chip { background: var(--soft); border-radius: 999px; padding: 5px 12px; font-size: 13px; font-weight: 600; }
+  .safety { border-left: 4px solid var(--ink); background: var(--soft); border-radius: 4px 12px 12px 4px; padding: 14px 16px; margin-top: 20px; }
+  .safety b { display: block; margin-bottom: 6px; }
+  .safety ul { margin: 0; padding-left: 18px; }
+  .safety li { margin: 4px 0; }
+  ul.plain { margin: 0; padding-left: 20px; }
+  ul.plain li { margin: 4px 0; }
+
+  ol.steps { list-style: none; margin: 0; padding: 0; counter-reset: s; }
+  ol.steps li {
+    counter-increment: s; display: flex; gap: 14px; align-items: flex-start;
+    padding: 14px 4px; border-bottom: 1px solid var(--line); cursor: pointer;
+  }
+  ol.steps li::before {
+    content: counter(s); flex: none; width: 28px; height: 28px; border-radius: 50%;
+    border: 1.5px solid var(--ink); display: grid; place-items: center; font-size: 13px; font-weight: 700; margin-top: 1px;
+  }
+  ol.steps li.done { color: var(--muted); text-decoration: line-through; }
+  ol.steps li.done::before { background: var(--ink); color: var(--bg); content: "\2713"; }
+
+  .part { display: block; text-decoration: none; color: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-bottom: 10px; }
+  .part:active { background: var(--soft); }
+  .part .row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+  .part .name { font-weight: 600; }
+  .part .price { font-weight: 700; white-space: nowrap; }
+  .part .price.none { color: var(--muted); font-weight: 500; font-size: 14px; }
+  .part .where { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .part.best { border-color: var(--ink); }
+  .badge { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; display: block; }
+  .note { color: var(--muted); font-size: 13px; margin-top: 10px; }
+  .hidden { display: none !important; }
+  footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 36px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="logo"><svg viewBox="0 0 32 32" fill="none" stroke="#fff" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" style="stroke: var(--btn-ink)"><path d="M7 25V8l9 11 9-11v17"/></svg></div>
+    <strong>Mendly</strong>
+  </header>
+
+  <!-- 1. Start -->
+  <section id="start">
+    <h1>Point at what's broken.<br>Get the fix.</h1>
+    <p class="lead">Snap a photo and Mendly shows you how to repair it, step by step, and where to buy the part.</p>
+
+    <div class="drop" id="drop">
+      <svg class="icon" id="dropIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+      <b id="dropTitle">Take or upload a photo</b>
+      <span id="dropHint">Tap here. Show the broken part up close.</span>
+      <img id="preview" alt="" class="hidden">
+      <input type="file" id="photo" accept="image/*" aria-label="Take or upload a photo">
+    </div>
+    <div class="swap hidden" id="swap">Tap the photo to change it.</div>
+
+    <label class="field">What's wrong? <small>(optional)</small>
+      <textarea id="desc" maxlength="500" placeholder="e.g. The door won't latch"></textarea>
+    </label>
+
+    <button id="go" disabled>Find the fix</button>
+    <div class="err hidden" id="err1"></div>
+    <div class="meta" id="usage"></div>
+  </section>
+
+  <!-- 2. One quick question -->
+  <section id="ask" class="hidden">
+    <h1>One quick question</h1>
+    <p class="lead" id="askLead">Parts only fit specific models. A model number gets you the right one.</p>
+    <label class="field" id="qWrap">
+      <span id="qText"></span>
+      <input type="text" id="qAnswer" autocomplete="off">
+    </label>
+    <label class="field">Brand <small>(the name on the product, like Moen or GE)</small>
+      <input type="text" id="brand" autocomplete="off" placeholder="e.g. Moen">
+    </label>
+    <label class="field">Model number <small>(on a sticker or label, often inside the door or on the back)</small>
+      <input type="text" id="model" autocomplete="off" autocapitalize="characters" placeholder="e.g. JES735WJ03">
+    </label>
+    <button id="goAsk">Continue</button>
+    <button class="ghost" id="skip">Skip the model number</button>
+    <div class="err hidden" id="err2"></div>
+  </section>
+
+  <!-- 3. Working -->
+  <section id="loading" class="loading hidden">
+    <div class="spinner"></div>
+    <p id="stage">Looking at your photo…</p>
+    <small>This takes about 30 seconds.</small>
+  </section>
+
+  <!-- 4. Result -->
+  <section id="result" class="hidden"></section>
+
+  <footer>Mendly gives general guidance, not professional advice. Stop and call a pro if you're unsure.</footer>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const screens = ["start", "ask", "loading", "result"];
+  const show = (name) => {
+    screens.forEach((s) => $(s).classList.toggle("hidden", s !== name));
+    window.scrollTo(0, 0);
+  };
+
+  let photoFile = null;     // what we upload (downscaled)
+  let description = "";
+  let stageTimer = null;
+
+  // ---------- helpers ----------
+  function el(tag, props, ...kids) {
+    const n = document.createElement(tag);
+    if (props) for (const [k, v] of Object.entries(props)) {
+      if (k === "class") n.className = v;
+      else if (k === "text") n.textContent = v;
+      else n.setAttribute(k, v);
+    }
+    kids.flat().forEach((k) => k != null && n.append(k.nodeType ? k : document.createTextNode(k)));
+    return n;
+  }
+  const safeUrl = (u) => { try { const x = new URL(u); return /^https?:$/.test(x.protocol) ? x.href : null; } catch { return null; } };
+  const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
+  const priceNum = (p) => { const m = String(p || "").replace(/,/g, "").match(/\d+(\.\d+)?/); return m ? parseFloat(m[0]) : null; };
+
+  // Shrink big phone photos before upload (faster, cheaper). Falls back to the original.
+  async function shrink(file) {
+    try {
+      const bmp = await createImageBitmap(file);
+      const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+      c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+      const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.85));
+      return blob ? new File([blob], "photo.jpg", { type: "image/jpeg" }) : file;
+    } catch { return file; }
+  }
+
+  async function refreshUsage() {
+    try {
+      const r = await (await fetch("/api/usage")).json();
+      $("usage").textContent = `${r.remaining} free repair${r.remaining === 1 ? "" : "s"} left today`;
+    } catch {}
+  }
+
+  // ---------- step 1: photo ----------
+  $("photo").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    photoFile = await shrink(f);
+    // Preview. Some browsers can't show HEIC; the upload still works, so fail quietly.
+    const url = URL.createObjectURL(photoFile);
+    $("preview").onload = () => { $("preview").classList.remove("hidden"); $("dropIcon").classList.add("hidden"); $("dropTitle").classList.add("hidden"); $("dropHint").classList.add("hidden"); $("drop").classList.add("has-photo"); $("swap").classList.remove("hidden"); };
+    $("preview").onerror = () => { $("dropTitle").textContent = "Photo added"; $("dropHint").textContent = "Tap to change it."; };
+    $("preview").src = url;
+    $("go").disabled = false;
+  });
+
+  // ---------- calling the server ----------
+  async function analyze({ model = "", brand = "", answer = "", asked = "" } = {}) {
+    show("loading");
+    const stages = ["Looking at your photo…", "Working out what's broken…", "Writing your repair steps…", "Finding the part and prices…"];
+    let i = 0; $("stage").textContent = stages[0];
+    clearInterval(stageTimer);
+    stageTimer = setInterval(() => { i = Math.min(i + 1, stages.length - 1); $("stage").textContent = stages[i]; }, 7000);
+
+    const fd = new FormData();
+    fd.append("photo", photoFile);
+    fd.append("description", description);
+    fd.append("model_number", model);
+    fd.append("brand", brand);
+    fd.append("answer", answer);
+    fd.append("asked", asked);
+    try {
+      const res = await fetch("/api/analyze", { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+      clearInterval(stageTimer);
+      if (!res.ok || data.status === "error") throw new Error(data.message || "Something went wrong. Please try again.");
+      if (data.status === "needs_info") return showAsk(data);
+      showResult(data);
+    } catch (err) {
+      clearInterval(stageTimer);
+      const target = $("ask").classList.contains("was-ask") ? "err2" : "err1";
+      show(target === "err2" ? "ask" : "start");
+      const box = $(target); box.textContent = err.message; box.classList.remove("hidden");
+    }
+  }
+
+  $("go").addEventListener("click", () => {
+    $("err1").classList.add("hidden");
+    description = $("desc").value.trim();
+    $("ask").classList.remove("was-ask");
+    analyze();
+  });
+
+  // ---------- step 2: one quick question ----------
+  function showAsk(data) {
+    $("ask").classList.add("was-ask");
+    $("err2").classList.add("hidden");
+    const item = data.item ? `We think this is a ${data.item}. ` : "";
+    $("askLead").textContent = item + "Parts only fit specific models, so the brand and model number get you the right one.";
+    $("qWrap").classList.toggle("hidden", !data.question);
+    $("qText").textContent = data.question || "";
+    $("qAnswer").value = "";
+    $("brand").value = data.brand || "";
+    show("ask");
+    $("model").focus({ preventScroll: true });
+  }
+  const continueWith = (skip) => analyze({
+    model: skip ? "" : $("model").value.trim(),
+    brand: $("brand").value.trim(),
+    answer: skip ? "" : $("qAnswer").value.trim(),
+    asked: "1",
+  });
+  $("goAsk").addEventListener("click", () => continueWith(false));
+  $("skip").addEventListener("click", () => continueWith(true));
+  $("model").addEventListener("keydown", (e) => { if (e.key === "Enter") continueWith(false); });
+
+  // ---------- step 3: result ----------
+  function showResult({ info = {}, plan = {}, parts = [], remaining }) {
+    const r = $("result");
+    r.replaceChildren();
+
+    const sub = [info.brand, info.model_number].filter(Boolean).join(" · ");
+    r.append(el("div", { class: "card" },
+      el("h1", { class: "title", text: info.item ? info.item.charAt(0).toUpperCase() + info.item.slice(1) : "Your repair" }),
+      el("p", { class: "sub", text: info.problem || "" }),
+      sub ? el("p", { class: "sub", text: sub }) : null,
+      el("div", { class: "chips" },
+        plan.difficulty ? el("span", { class: "chip", text: "Difficulty: " + plan.difficulty }) : null,
+        plan.time_estimate ? el("span", { class: "chip", text: plan.time_estimate }) : null,
+        info.suspected_part ? el("span", { class: "chip", text: "Part: " + info.suspected_part }) : null),
+      (plan.safety_notes || []).length
+        ? el("div", { class: "safety" }, el("b", { text: "Before you start" }), el("ul", null, plan.safety_notes.map((s) => el("li", { text: s }))))
+        : null));
+
+    if ((plan.tools || []).length) {
+      r.append(el("h2", { text: "Tools you'll need" }), el("ul", { class: "plain" }, plan.tools.map((t) => el("li", { text: t }))));
+    }
+
+    if ((plan.steps || []).length) {
+      r.append(el("h2", { text: "Steps" }),
+        el("ol", { class: "steps" }, plan.steps.map((s) => {
+          const li = el("li", { text: s });
+          li.addEventListener("click", () => li.classList.toggle("done"));
+          return li;
+        })),
+        el("p", { class: "note", text: "Tap a step to check it off." }));
+    }
+
+    r.append(el("h2", { text: "Where to buy the part" }));
+    const withUrl = (parts || []).filter((p) => safeUrl(p.url));
+    if (!withUrl.length) {
+      r.append(el("p", { class: "sub", text: "We couldn't find a matching part. Try again with the model number from the label." }));
+    } else {
+      const cheapest = withUrl.map((p) => priceNum(p.price)).filter((n) => n != null);
+      const min = cheapest.length > 1 ? Math.min(...cheapest) : null;
+      withUrl.forEach((p) => {
+        const n = priceNum(p.price);
+        const best = min != null && n === min;
+        const a = el("a", { class: "part" + (best ? " best" : ""), href: safeUrl(p.url), target: "_blank", rel: "noopener noreferrer" },
+          best ? el("span", { class: "badge", text: "Lowest price" }) : null,
+          p.fits_model ? el("span", { class: "badge", text: "Matches your model" }) : null,
+          el("div", { class: "row" },
+            el("span", { class: "name", text: p.name || "Replacement part" }),
+            el("span", { class: "price" + (p.price ? "" : " none"), text: p.price || "See price" })),
+          el("div", { class: "where", text: [host(p.url), p.part_number ? "#" + p.part_number : "", p.fits_model ? "" : "check fit before buying"].filter(Boolean).join(" · ") }));
+        r.append(a);
+      });
+      r.append(el("p", { class: "note", text: "Prices come from the store pages and can change. Check that a part fits your exact model before you buy." }));
+    }
+
+    const again = el("button", { text: "Fix something else" });
+    again.addEventListener("click", reset);
+    r.append(again);
+    show("result");
+    refreshUsage();
+  }
+
+  function reset() {
+    photoFile = null; description = "";
+    $("photo").value = ""; $("desc").value = ""; $("model").value = ""; $("brand").value = "";
+    $("preview").classList.add("hidden"); $("preview").removeAttribute("src");
+    $("dropIcon").classList.remove("hidden"); $("dropTitle").classList.remove("hidden"); $("dropHint").classList.remove("hidden");
+    $("dropTitle").textContent = "Take or upload a photo";
+    $("dropHint").textContent = "Tap here. Show the broken part up close.";
+    $("drop").classList.remove("has-photo"); $("swap").classList.add("hidden");
+    $("go").disabled = true;
+    $("err1").classList.add("hidden");
+    show("start");
+  }
+
+  refreshUsage();
+})();
+</script>
+</body>
+</html>
