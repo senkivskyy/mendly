@@ -162,6 +162,22 @@ def norm(text):
     return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
 
 
+def model_variants(model):
+    """Labels often add suffixes ("LFDS22520S/04", "63075LF-SSLHP") that parts sites drop.
+    Try the full number first, then shorter forms."""
+    model = (model or "").strip()
+    out = []
+    for v in (model, re.split(r"[/\s]", model)[0], re.split(r"[/\s-]", model)[0]):
+        if len(norm(v)) >= 5 and v not in out:
+            out.append(v)
+    return out
+
+
+def matches_model(text, model):
+    t = norm(text)
+    return any(norm(v) in t for v in model_variants(model))
+
+
 # Sites that publish a parts list for each specific model number.
 MODEL_DOMAINS = [
     "partselect.com", "repairclinic.com", "searspartsdirect.com",
@@ -193,15 +209,18 @@ def model_page_parts(model, brand, wanted, keywords):
     are better than generic search results (for example a real fridge light, not a
     generic bulb).
     """
-    key = norm(model)
-    try:
-        hits = tavily.search(
-            f"{brand or ''} {model} parts list".strip(), max_results=8, include_domains=MODEL_DOMAINS
-        )["results"]
-    except Exception as e:
-        print(f"  (model page search failed: {e})")
-        return [], []
-    pages = [h for h in hits if key in norm(h["url"] + h["title"])][:3]
+    pages = []
+    for variant in model_variants(model):  # full number first, then shorter forms
+        try:
+            hits = tavily.search(
+                f"{brand or ''} {variant} parts list".strip(), max_results=8, include_domains=MODEL_DOMAINS
+            )["results"]
+        except Exception as e:
+            print(f"  (model page search failed: {e})")
+            continue
+        pages = [h for h in hits if norm(variant) in norm(h["url"] + h["title"])][:3]
+        if pages:
+            break
     if os.getenv("MENDLY_DEBUG"):
         print("  [debug] model pages:", [h["url"] for h in pages])
     if not pages:
@@ -337,7 +356,7 @@ Reply with ONLY a JSON object shaped like:
     if model:
         text_by_url = {r["url"]: r["title"] + " " + r["content"] + " " + r["url"] for r in results}
         for p in parts:
-            p["fits_model"] = bool(p.get("fits_model")) or norm(model) in norm(text_by_url.get(p["url"], ""))
+            p["fits_model"] = bool(p.get("fits_model")) or matches_model(text_by_url.get(p["url"], ""), model)
 
     # Last resort: open the store pages themselves to read the price.
     fill_prices_from_pages(parts, model)
@@ -398,7 +417,7 @@ Reply with ONLY a JSON object: {{"name": "...", "price": null, "url": "..."}}
         "name": data.get("name") or hit["title"],
         "price": price,
         "url": hit["url"],
-        "exact": bool(model) and norm(model) in norm(text),
+        "exact": bool(model) and matches_model(text, model),
     }
 
 
