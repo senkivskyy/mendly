@@ -106,11 +106,19 @@ Reply with ONLY a JSON object with these keys:
     return ask_json(REASONING_MODEL, prompt, max_tokens=2500)
 
 
+PLUMBING_DOMAINS = [
+    "plumbersstock.com", "firstsupply.com", "ferguson.com", "fergusonhome.com", "build.com",
+    "faucetdirect.com", "supplyhouse.com", "homedepot.com", "lowes.com", "deltafaucet.com",
+    "brizo.com", "moen.com", "kohler.com", "efaucets.com",
+]
+
+
 SHOP_DOMAINS = [
     "repairclinic.com", "partselect.com", "amazon.com", "ebay.com",
     "searspartsdirect.com", "appliancepartspros.com", "walmart.com",
     "homedepot.com", "autozone.com", "rockauto.com", "partsgeek.com",
 ]
+SHOP_DOMAINS = SHOP_DOMAINS + [d for d in PLUMBING_DOMAINS if d not in SHOP_DOMAINS]
 
 
 def price_value(price):
@@ -154,7 +162,7 @@ def fill_prices_from_pages(parts, model=None):
         price = price_from_page(page, p.get("part_number"))
         if price:
             p["price"] = price
-        if model and page and norm(model) in norm(page):
+        if model and page and matches_model(page, model):
             p["fits_model"] = True
 
 
@@ -182,6 +190,8 @@ def matches_model(text, model):
 MODEL_DOMAINS = [
     "partselect.com", "repairclinic.com", "searspartsdirect.com",
     "appliancepartspros.com", "ereplacementparts.com", "fix.com", "encompass.com",
+    "plumbersstock.com", "firstsupply.com", "ferguson.com", "fergusonhome.com", "build.com",
+    "supplyhouse.com", "faucetdirect.com",
 ]
 STOP_WORDS = {"the", "and", "assembly", "part", "parts", "replacement", "for", "with", "broken", "kit"}
 
@@ -221,6 +231,19 @@ def model_page_parts(model, brand, wanted, keywords):
         pages = [h for h in hits if norm(variant) in norm(h["url"] + h["title"])][:3]
         if pages:
             break
+    if not pages:  # no parts-site page: look for any page that names this exact model
+        for variant in model_variants(model):
+            try:
+                hits = tavily.search(f"{brand or ''} {variant} replacement parts".strip(), max_results=8)["results"]
+            except Exception:
+                continue
+            pages = [
+                h for h in hits
+                if matches_model(h["url"] + " " + h["title"] + " " + h["content"], variant)
+                and "youtube.com" not in h["url"]
+            ][:3]
+            if pages:
+                break
     if os.getenv("MENDLY_DEBUG"):
         print("  [debug] model pages:", [h["url"] for h in pages])
     if not pages:
@@ -262,6 +285,31 @@ Reply with ONLY a JSON object: {{"parts": [{{"name": "...", "part_number": null,
     return out, pages
 
 
+def find_series(brand, model):
+    """Many models belong to a named product line (for example Brizo "Odin"). Parts pages
+    are often listed under that name, not the model number. Read the name from search results."""
+    if not model:
+        return None
+    try:
+        hits = tavily.search(f"{brand or ''} {model_variants(model)[-1]}".strip(), max_results=6)["results"]
+    except Exception:
+        return None
+    hits = [h for h in hits if matches_model(h["url"] + " " + h["title"] + " " + h["content"], model)]
+    if not hits:
+        return None
+    text = "\n\n".join(f"TITLE: {h['title']}\nTEXT: {h['content'][:500]}" for h in hits)
+    prompt = f"""Model number {brand or ''} {model}. From ONLY the text below, what is the product
+line or series name of this model (a short name such as "Odin" or "Solna")?
+Reply with ONLY a JSON object: {{"series": null}} or {{"series": "Name"}}. Do not guess.
+
+{text}"""
+    try:
+        s = ask_json(FAST_MODEL, prompt, max_tokens=800).get("series")
+    except (ValueError, json.JSONDecodeError):
+        return None
+    return s.strip() if isinstance(s, str) and 2 <= len(s.strip()) <= 30 else None
+
+
 def find_parts(queries, wanted, model=None, brand=None, keywords=None):
     """Step 3 (Tavily + fast model): where do I buy the part, and for how much?"""
     if isinstance(queries, str):
@@ -275,6 +323,11 @@ def find_parts(queries, wanted, model=None, brand=None, keywords=None):
 
     # 2) Wider search of parts stores.
     queries = list(queries)[:3]
+    series = find_series(brand, model)
+    if os.getenv("MENDLY_DEBUG"):
+        print("  [debug] series:", series)
+    if series:
+        queries.insert(0, f"{brand or ''} {series} {wanted} replacement part".strip())
     if model:  # always search the exact model number first
         who = f"{brand} " if brand else ""
         queries.insert(0, f'{who}"{model}" {wanted} replacement part')
@@ -282,7 +335,7 @@ def find_parts(queries, wanted, model=None, brand=None, keywords=None):
         queries.insert(0, f"{brand} {wanted} replacement part")
     seen, results = set(), list(model_pages)
     seen.update(h["url"] for h in model_pages)
-    for q in queries[:4]:
+    for q in queries[:5]:
         try:
             found = tavily.search(
                 q, max_results=5, include_domains=SHOP_DOMAINS
