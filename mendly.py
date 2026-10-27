@@ -249,6 +249,97 @@ Reply with ONLY a JSON object shaped like:
     return parts
 
 
+NEW_DOMAINS = SHOP_DOMAINS + ["lowes.com", "bestbuy.com", "target.com", "wayfair.com", "costco.com"]
+
+
+def find_new_price(info):
+    """What would a brand-new one cost? Used for the fix-or-replace comparison."""
+    item, model, brand = info.get("item"), info.get("model_number"), info.get("brand")
+    if not item:
+        return None
+    query = " ".join(str(x) for x in (brand, model, item) if x) + " buy new price"
+    try:
+        results = tavily.search(query, max_results=6, include_domains=NEW_DOMAINS)["results"]
+    except Exception as e:
+        print(f"  (new-price search failed: {e})")
+        return None
+    if not results:
+        return None
+    snippets = "\n\n".join(
+        f"URL: {r['url']}\nTITLE: {r['title']}\nTEXT: {r['content']}" for r in results
+    )
+    prompt = f"""We want the price of a NEW, complete {' '.join(str(x) for x in (brand, model, item) if x)}.
+From ONLY the search results below, pick the single best match: a whole new product,
+not a replacement part or accessory. Never invent a price or URL. Use null if the
+results do not state a price. Copy the URL exactly.
+Reply with ONLY a JSON object: {{"name": "...", "price": null, "url": "..."}}
+
+{snippets}"""
+    try:
+        data = ask_json(FAST_MODEL, prompt, max_tokens=2500)
+    except (ValueError, json.JSONDecodeError):
+        return None
+    by_url = {r["url"]: r for r in results}
+    if data.get("url") not in by_url:
+        return None
+    hit = by_url[data["url"]]
+    price = data.get("price")
+    if price_value(price) is None:  # snippet had no price: read it from the page
+        try:
+            page = tavily.extract(urls=[hit["url"]]).get("results", [{}])[0].get("raw_content", "")
+            price = price_from_page(page)
+        except Exception:
+            price = None
+    if price_value(price) is None:
+        return None
+    text = hit["title"] + " " + hit["content"] + " " + hit["url"]
+    return {
+        "name": data.get("name") or hit["title"],
+        "price": price,
+        "url": hit["url"],
+        "exact": bool(model) and norm(model) in norm(text),
+    }
+
+
+def fix_or_replace(plan, parts, new):
+    """Compare the cost of the part with the cost of a new one. Plain arithmetic, no AI."""
+    fit = [price_value(p["price"]) for p in parts if p.get("fits_model") and price_value(p.get("price")) is not None]
+    anyp = [price_value(p["price"]) for p in parts if price_value(p.get("price")) is not None]
+    repair = min(fit) if fit else (min(anyp) if anyp else None)
+    cost_new = price_value(new.get("price")) if new else None
+    if repair is None or cost_new is None:
+        return None
+
+    ratio = repair / cost_new
+    hard = (plan.get("difficulty") or "").lower() == "hard"
+    if ratio <= 0.4 and not (hard and ratio > 0.25):
+        call, headline = "fix", "Fix it."
+    elif ratio <= 0.75:
+        call, headline = "close", "Close call."
+    else:
+        call, headline = "replace", "Consider replacing it."
+
+    saved = cost_new - repair
+    if call == "fix":
+        detail = f"The part costs about ${repair:,.2f} and a new one about ${cost_new:,.2f}. Repairing saves around ${saved:,.0f}."
+    elif call == "close":
+        detail = "The part costs a good share of a new one. Fix it if you're comfortable with the repair; otherwise replacing may be easier."
+    else:
+        detail = "The part costs close to a new one, so replacing may be the better deal unless you value the original."
+    notes = ["Part price only. Your time and any tools are not included."]
+    if not fit:
+        notes.append("Confirm the part fits your exact model before you buy.")
+    if new and not new.get("exact"):
+        notes.append("The new-item price is for the closest match we found.")
+    if hard:
+        notes.append("This is a harder repair; a professional may add to the cost.")
+    return {
+        "call": call, "headline": headline, "detail": detail, "notes": notes,
+        "repair_cost": repair, "new_cost": cost_new,
+        "new_name": new.get("name"), "new_url": new.get("url"),
+    }
+
+
 def job_sheet(info, plan, parts):
     lines = [
         f"# Repair job: {info.get('item')}",

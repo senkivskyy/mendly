@@ -15,6 +15,7 @@ Mendly is an AI repair assistant. Take a photo of something broken, add a short 
 3. **Ask once.** Parts only fit specific models, so Mendly asks for the brand and model number (printed on a sticker or label) before it searches. You can skip it.
 4. **Plan.** A reasoning model writes the difficulty, time estimate, tools, safety notes and numbered steps. Safety notes come first, and high-voltage or gas work tells the user to stop and call a professional.
 5. **Find the part.** Mendly searches live on the web for the replacement part, reads the store pages for prices, and checks whether each result mentions your exact model number. Results that match are marked and listed first; the rest say "check fit before buying".
+6. **Fix or replace?** Compares the cost of the part with the price of a new one and gives a plain verdict.
 
 ## Models and tools
 

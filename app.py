@@ -5,6 +5,7 @@ Run locally:  uvicorn app:app --reload
 import io
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -148,13 +149,25 @@ def analyze(
         if isinstance(queries, str):
             queries = [queries]
         queries = queries or [f"{base} replacement part buy"]
-        parts = mendly.find_parts(queries, info.get("suspected_part") or "the broken part", info.get("model_number"), info.get("brand"))
+        with ThreadPoolExecutor(max_workers=2) as pool:  # search both at the same time
+            parts_job = pool.submit(
+                mendly.find_parts, queries, info.get("suspected_part") or "the broken part",
+                info.get("model_number"), info.get("brand"))
+            new_job = pool.submit(mendly.find_new_price, info)
+            parts = parts_job.result()
+            try:
+                new_item = new_job.result()
+            except Exception as e:
+                print("new price failed:", repr(e))
+                new_item = None
+        verdict = mendly.fix_or_replace(plan, parts, new_item)
 
         return {
             "status": "ok",
             "info": info,
             "plan": plan,
             "parts": parts,
+            "verdict": verdict,
             "remaining": remaining(ip),
         }
     except Exception as e:  # keep the error friendly, log the real one

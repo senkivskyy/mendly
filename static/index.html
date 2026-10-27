@@ -118,6 +118,31 @@
   .badge { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; display: block; }
   .note { color: var(--muted); font-size: 13px; margin-top: 10px; }
   .hidden { display: none !important; }
+
+  .verdict { margin-top: 16px; background: var(--ink); color: var(--bg); border-radius: 16px; padding: 18px; }
+  .verdict .kicker { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.65; font-weight: 600; }
+  .verdict h3 { font-size: 26px; line-height: 1.1; letter-spacing: -0.02em; margin: 4px 0 6px; }
+  .verdict p { margin: 0 0 14px; opacity: 0.85; }
+  .bar { margin: 10px 0; }
+  .bar .lbl { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 4px; }
+  .bar .lbl b { font-weight: 700; }
+  .bar .track { height: 10px; border-radius: 6px; background: color-mix(in srgb, var(--bg) 22%, transparent); overflow: hidden; }
+  .bar .fill { height: 100%; border-radius: 6px; background: var(--bg); }
+  .bar.dim .fill { opacity: 0.45; }
+  .verdict .vnotes { font-size: 12px; opacity: 0.65; margin-top: 12px; }
+  .verdict a { color: inherit; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 22px; }
+  .actions button { margin-top: 0; padding: 14px 10px; }
+  .actions .wide { grid-column: 1 / -1; }
+  @media print {
+    body { background: #fff; color: #000; }
+    header, .actions, footer, .note, .verdict .vnotes { display: none !important; }
+    .card, .part, .safety, .verdict { border: 1px solid #999; background: #fff; color: #000; }
+    .verdict h3, .verdict p { color: #000; opacity: 1; }
+    .bar .track { background: #ddd; } .bar .fill { background: #000; }
+    a.part::after { content: attr(href); display: block; font-size: 10px; color: #444; word-break: break-all; }
+    ol.steps li { break-inside: avoid; }
+  }
   footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 36px; }
 </style>
 </head>
@@ -305,7 +330,7 @@
   $("model").addEventListener("keydown", (e) => { if (e.key === "Enter") continueWith(false); });
 
   // ---------- step 3: result ----------
-  function showResult({ info = {}, plan = {}, parts = [], remaining }) {
+  function showResult({ info = {}, plan = {}, parts = [], verdict = null, remaining }) {
     const r = $("result");
     r.replaceChildren();
 
@@ -321,6 +346,24 @@
       (plan.safety_notes || []).length
         ? el("div", { class: "safety" }, el("b", { text: "Before you start" }), el("ul", null, plan.safety_notes.map((s) => el("li", { text: s }))))
         : null));
+
+    if (verdict) {
+      const max = Math.max(verdict.repair_cost, verdict.new_cost);
+      const money = (n) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const bar = (label, amount, dim) => el("div", { class: "bar" + (dim ? " dim" : "") },
+        el("div", { class: "lbl" }, el("span", { text: label }), el("b", { text: money(amount) })),
+        el("div", { class: "track" }, el("div", { class: "fill", style: "width:" + Math.max(4, Math.round(amount / max * 100)) + "%" })));
+      const newLink = safeUrl(verdict.new_url);
+      r.append(el("div", { class: "verdict" },
+        el("div", { class: "kicker", text: "Fix or replace?" }),
+        el("h3", { text: verdict.headline }),
+        el("p", { text: verdict.detail }),
+        bar("Replacement part", verdict.repair_cost, false),
+        bar("Buy a new one", verdict.new_cost, true),
+        el("div", { class: "vnotes" },
+          (verdict.notes || []).join(" "), " ",
+          newLink ? el("a", { href: newLink, target: "_blank", rel: "noopener noreferrer", text: "See the new one (" + host(newLink) + ")" }) : null)));
+    }
 
     if ((plan.tools || []).length) {
       r.append(el("h2", { text: "Tools you'll need" }), el("ul", { class: "plain" }, plan.tools.map((t) => el("li", { text: t }))));
@@ -358,11 +401,37 @@
       r.append(el("p", { class: "note", text: "Prices come from the store pages and can change. Check that a part fits your exact model before you buy." }));
     }
 
-    const again = el("button", { text: "Fix something else" });
+    const text = shareText(info, plan, withUrl, verdict);
+    const share = el("button", { text: "Share checklist" });
+    share.addEventListener("click", async () => {
+      try {
+        if (navigator.share) { await navigator.share({ title: "Mendly repair: " + (info.item || ""), text }); return; }
+        await navigator.clipboard.writeText(text);
+        share.textContent = "Copied to clipboard";
+      } catch { /* user closed the share sheet */ }
+      setTimeout(() => (share.textContent = "Share checklist"), 2000);
+    });
+    const print = el("button", { class: "ghost", text: "Print or save PDF" });
+    print.addEventListener("click", () => window.print());
+    const again = el("button", { class: "ghost wide", text: "Fix something else" });
     again.addEventListener("click", reset);
-    r.append(again);
+    r.append(el("div", { class: "actions" }, share, print, again));
     show("result");
     refreshUsage();
+  }
+
+  // Plain-text version of the job, for sharing or pasting into notes.
+  function shareText(info, plan, parts, verdict) {
+    const L = [];
+    L.push("Repair: " + [info.brand, info.model_number, info.item].filter(Boolean).join(" "));
+    if (info.problem) L.push("Problem: " + info.problem);
+    if (verdict) L.push("Fix or replace: " + verdict.headline + " " + verdict.detail);
+    if ((plan.safety_notes || []).length) L.push("", "SAFETY", ...plan.safety_notes.map((s) => "- " + s));
+    if ((plan.tools || []).length) L.push("", "TOOLS", ...plan.tools.map((t) => "- " + t));
+    if ((plan.steps || []).length) L.push("", "STEPS", ...plan.steps.map((s, i) => "[ ] " + (i + 1) + ". " + s));
+    if (parts.length) L.push("", "PARTS", ...parts.map((p) => "- " + (p.name || "Part") + (p.part_number ? " #" + p.part_number : "") + (p.price ? " " + p.price : "") + " " + p.url));
+    L.push("", "Made with Mendly");
+    return L.join("\n");
   }
 
   function reset() {
