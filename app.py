@@ -152,7 +152,7 @@ def analyze(
         with ThreadPoolExecutor(max_workers=2) as pool:  # search both at the same time
             parts_job = pool.submit(
                 mendly.find_parts, queries, info.get("suspected_part") or "the broken part",
-                info.get("model_number"), info.get("brand"))
+                info.get("model_number"), info.get("brand"), plan.get("part_keywords"))
             new_job = pool.submit(mendly.find_new_price, info)
             parts = parts_job.result()
             try:

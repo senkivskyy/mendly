@@ -100,6 +100,7 @@ Reply with ONLY a JSON object with these keys:
 "tools": a list of tools needed
 "safety_notes": a list of safety warnings (electrical, gas, fuel, high voltage, and when to call a professional). Never tell the user to discharge a capacitor or touch high-voltage parts; say instead that those parts stay dangerous after unplugging and to stop and call a professional if the repair requires them
 "brand": the brand if the model number clearly indicates it, otherwise null
+"part_keywords": a list of 3 to 6 alternative names for the suspected part, as parts stores would call it (for a fridge light bulb: "light", "lamp", "LED", "bulb")
 "steps": an ordered list of short step strings
 "search_queries": a list of 2 or 3 different web search queries to find the replacement part and its price. Include the brand and model number when known, and words like "replacement part" and "buy"""
     return ask_json(REASONING_MODEL, prompt, max_tokens=2500)
@@ -161,17 +162,107 @@ def norm(text):
     return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
 
 
-def find_parts(queries, wanted, model=None, brand=None):
+# Sites that publish a parts list for each specific model number.
+MODEL_DOMAINS = [
+    "partselect.com", "repairclinic.com", "searspartsdirect.com",
+    "appliancepartspros.com", "ereplacementparts.com", "fix.com", "encompass.com",
+]
+STOP_WORDS = {"the", "and", "assembly", "part", "parts", "replacement", "for", "with", "broken", "kit"}
+
+
+def keywords_for(wanted, extra=None):
+    words = {w.lower() for w in re.findall(r"[A-Za-z]{3,}", wanted or "")} - STOP_WORDS
+    words |= {str(w).lower() for w in (extra or []) if str(w).strip()}
+    return sorted(words)
+
+
+def relevant_excerpt(text, keywords, limit=6000):
+    """Keep only the lines of a long parts page that mention what we need."""
+    lines = (text or "").splitlines()
+    keep = set()
+    for i, line in enumerate(lines):
+        if any(k in line.lower() for k in keywords):
+            keep.update(range(max(0, i - 1), min(len(lines), i + 3)))
+    return "\n".join(lines[i] for i in sorted(keep))[:limit]
+
+
+def model_page_parts(model, brand, wanted, keywords):
+    """Find the parts list for this exact model, and read the right part off it.
+
+    Returns (parts, pages). These parts are known to belong to the model, so they
+    are better than generic search results (for example a real fridge light, not a
+    generic bulb).
+    """
+    key = norm(model)
+    try:
+        hits = tavily.search(
+            f"{brand or ''} {model} parts list".strip(), max_results=8, include_domains=MODEL_DOMAINS
+        )["results"]
+    except Exception as e:
+        print(f"  (model page search failed: {e})")
+        return [], []
+    pages = [h for h in hits if key in norm(h["url"] + h["title"])][:3]
+    if os.getenv("MENDLY_DEBUG"):
+        print("  [debug] model pages:", [h["url"] for h in pages])
+    if not pages:
+        return [], []
+    try:
+        extracted = tavily.extract(urls=[h["url"] for h in pages]).get("results", [])
+    except Exception:
+        extracted = []
+    raw_by_url = {e.get("url"): e.get("raw_content", "") for e in extracted}
+    blocks = []
+    for h in pages:
+        excerpt = relevant_excerpt(raw_by_url.get(h["url"]) or h["content"], keywords)
+        if excerpt:
+            blocks.append(f"PAGE: {h['url']}\n{excerpt}")
+    if not blocks:
+        return [], pages
+
+    prompt = f"""These are parts-list pages for the exact model {brand or ''} {model}.
+We need: {wanted} (also called: {', '.join(keywords)}).
+List ONLY parts from the text below that match what we need. The part must be a
+component made for this appliance, not a generic item. Include the part number and
+price only if the text states them. Never invent anything. The url must be one of the
+PAGE urls, copied exactly.
+Reply with ONLY a JSON object: {{"parts": [{{"name": "...", "part_number": null, "price": null, "url": "..."}}]}}
+
+""" + "\n\n".join(blocks)
+    for llm in (FAST_MODEL, REASONING_MODEL):
+        try:
+            found = ask_json(llm, prompt, max_tokens=4000).get("parts", [])
+            break
+        except (ValueError, json.JSONDecodeError):
+            found = None
+    if not found:
+        return [], pages
+    valid = {h["url"] for h in pages}
+    out = [p for p in found if p.get("url") in valid]
+    for p in out:
+        p["fits_model"] = True  # taken from this model's own parts list
+    return out, pages
+
+
+def find_parts(queries, wanted, model=None, brand=None, keywords=None):
     """Step 3 (Tavily + fast model): where do I buy the part, and for how much?"""
     if isinstance(queries, str):
         queries = [queries]
+    keywords = keywords_for(wanted, keywords)
+
+    # 1) Best source: the parts list for this exact model number.
+    model_parts, model_pages = ([], [])
+    if model:
+        model_parts, model_pages = model_page_parts(model, brand, wanted, keywords)
+
+    # 2) Wider search of parts stores.
     queries = list(queries)[:3]
     if model:  # always search the exact model number first
         who = f"{brand} " if brand else ""
         queries.insert(0, f'{who}"{model}" {wanted} replacement part')
     elif brand:
         queries.insert(0, f"{brand} {wanted} replacement part")
-    seen, results = set(), []
+    seen, results = set(), list(model_pages)
+    seen.update(h["url"] for h in model_pages)
     for q in queries[:4]:
         try:
             found = tavily.search(
@@ -184,32 +275,39 @@ def find_parts(queries, wanted, model=None, brand=None):
             if r["url"] not in seen:
                 seen.add(r["url"])
                 results.append(r)
-    if not results:
-        return []
 
-    snippets = "\n\n".join(
-        f"URL: {r['url']}\nTITLE: {r['title']}\nTEXT: {r['content']}" for r in results
-    )
-    prompt = f"""The part we need is: {wanted}.
+    parts = []
+    shop_results = [r for r in results if r not in model_pages]
+    if shop_results:
+        snippets = "\n\n".join(
+            f"URL: {r['url']}\nTITLE: {r['title']}\nTEXT: {r['content']}" for r in shop_results
+        )
+        prompt = f"""The part we need is: {wanted} (also called: {', '.join(keywords)}).
 From ONLY the search results below, list replacement options for THAT part only.
 Skip unrelated parts (glass, trays, switches, and so on) and general category pages
 unless nothing better exists. Skip WHOLE products such as complete sinks, faucets or
-appliances: we only want the small replacement component. If a result says which models
-it fits, copy that into a "fits" field (a short string), otherwise null. Never invent a price, part number or URL. Use null when the results do not state it.
-Copy each URL exactly as given. Skip results that are not a page selling or describing a part.
+appliances, and skip generic items (for example an ordinary light bulb) when the result
+does not say it is made for {brand or 'this'} {model or 'appliance'}. We only want the small
+replacement component. If a result says which models it fits, copy that into a "fits"
+field (a short string), otherwise null. Never invent a price, part number or URL. Use null
+when the results do not state it. Copy each URL exactly as given.
 Reply with ONLY a JSON object shaped like:
 {{"parts": [{{"name": "...", "part_number": null, "price": null, "url": "...", "fits": null}}]}}
 
 {snippets}"""
-    parts = None
-    for model in (FAST_MODEL, REASONING_MODEL):  # fall back to the bigger model
-        try:
-            parts = ask_json(model, prompt, max_tokens=4000).get("parts", [])
-            break
-        except (ValueError, json.JSONDecodeError):
-            continue
-    if parts is None:
-        print("  (could not read the parts list, skipping)")
+        for llm in (FAST_MODEL, REASONING_MODEL):  # fall back to the bigger model
+            try:
+                parts = ask_json(llm, prompt, max_tokens=4000).get("parts", [])
+                break
+            except (ValueError, json.JSONDecodeError):
+                continue
+        else:
+            print("  (could not read the parts list, skipping)")
+
+    # Merge: parts from the model's own list come first; drop duplicates.
+    have = {norm(p.get("part_number")) for p in model_parts if p.get("part_number")}
+    parts = model_parts + [p for p in parts if not p.get("part_number") or norm(p["part_number"]) not in have]
+    if not parts:
         return []
 
     # Second pass: for parts with a part number but no price, search that part number.
@@ -223,9 +321,9 @@ Reply with ONLY a JSON object shaped like:
             except Exception:
                 continue
             for h in hits:
-                m = re.search(r"\$\s?\d{1,4}(?:\.\d{2})", h.get("content", ""))
-                if m and p["part_number"].lower() in (h["title"] + h["content"] + h["url"]).lower():
-                    p["price"], p["url"] = m.group().replace(" ", ""), h["url"]
+                price = PRICE_RE.search(h.get("content", ""))
+                if price and norm(p["part_number"]) in norm(h["title"] + h["content"] + h["url"]):
+                    p["price"], p["url"] = price.group().replace(" ", ""), h["url"]
                     results.append(h)
                     break
 
@@ -239,14 +337,17 @@ Reply with ONLY a JSON object shaped like:
     if model:
         text_by_url = {r["url"]: r["title"] + " " + r["content"] + " " + r["url"] for r in results}
         for p in parts:
-            p["fits_model"] = norm(model) in norm(text_by_url.get(p["url"], ""))
+            p["fits_model"] = bool(p.get("fits_model")) or norm(model) in norm(text_by_url.get(p["url"], ""))
 
     # Last resort: open the store pages themselves to read the price.
     fill_prices_from_pages(parts, model)
 
-    # Cheapest first; parts with no price go last.
+    # Matches first, then cheapest; parts with no price go last. Keep the list short.
     parts.sort(key=lambda p: (not p.get("fits_model"), price_value(p.get("price")) is None, price_value(p.get("price")) or 0))
-    return parts
+    # If we found parts confirmed for this model, drop the unconfirmed generic ones.
+    if any(p.get("fits_model") for p in parts):
+        parts = [p for p in parts if p.get("fits_model")]
+    return parts[:6]
 
 
 NEW_DOMAINS = SHOP_DOMAINS + ["lowes.com", "bestbuy.com", "target.com", "wayfair.com", "costco.com"]
@@ -406,7 +507,7 @@ def main():
     if isinstance(queries, str):
         queries = [queries]
     queries = queries or [f"{base} replacement part buy"]
-    parts = find_parts(queries, info.get("suspected_part") or "the broken part", info.get("model_number"), info.get("brand"))
+    parts = find_parts(queries, info.get("suspected_part") or "the broken part", info.get("model_number"), info.get("brand"), plan.get("part_keywords"))
 
     sheet = job_sheet(info, plan, parts)
     print("\n" + sheet)
