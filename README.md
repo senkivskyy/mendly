@@ -5,7 +5,7 @@
 Mendly is an AI repair assistant. Take a photo of something broken, add a short description, and Mendly identifies the item, works out the likely faulty part, writes safety-first repair steps, and finds where to buy the replacement with prices and links.
 
 - **Live demo:** https://mendly-8qtw.onrender.com
-- **Demo video:** https://youtu.be/fcj4EcUBekU
+- **Demo video:** https://youtu.be/osE_xi6zrOE
 - **Track:** Best Apps and Agents (Nebius x NVIDIA Global AI Hackathon)
 
 ## What it does
