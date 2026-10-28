@@ -29,6 +29,10 @@ Every model call runs on **Nebius Token Factory** through its OpenAI-compatible 
 
 **Tavily** provides live web search and page extraction at runtime, which is how Mendly finds current parts, prices and store links.
 
+## Where Token Factory helped
+
+Token Factory gave me hosted Nemotron models behind one OpenAI compatible API, so there were no GPUs to set up or manage. I used a vision model, a 120B reasoning model and a small fast model for different steps, and switching between them only meant changing a model name. That let me build and test the whole pipeline quickly. I did not use Nebius AI Cloud GPU instances; all inference runs on Token Factory.
+
 ## Built to be trustworthy
 
 - **No invented prices, part numbers or links.** The extraction step may only use text from the search results, and any part whose URL did not come from the search is discarded.
